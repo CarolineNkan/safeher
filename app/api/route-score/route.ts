@@ -60,6 +60,7 @@ export async function POST(req: Request) {
 
     const distance = routeData.routes[0].distance;
     const duration = routeData.routes[0].duration;
+    const geometry = routeData.routes[0].geometry;
     console.log("✅ Route found:", { distance, duration });
 
     // 2. OpenAI GPT-4 Safety Scoring
@@ -75,7 +76,12 @@ export async function POST(req: Request) {
         visibility: "medium",
         explanation: `AI unavailable. Fallback analysis based on ${(distance/1000).toFixed(1)} km + ${Math.round(duration/60)} min duration.`
       };
-      return NextResponse.json(aiResponse);
+      return NextResponse.json({
+        ...aiResponse,
+        geometry,
+        start,
+        end,
+      });
     }
 
     const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -122,7 +128,12 @@ Respond ONLY with JSON in this exact format:
       };
     }
 
-    return NextResponse.json(aiResponse);
+    return NextResponse.json({
+      ...aiResponse,
+      geometry,
+      start,
+      end,
+    });
 
   } catch (err) {
     console.error("❌ Route score error:", err);

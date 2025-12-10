@@ -2,6 +2,7 @@
 
 import { useSearchParams } from "next/navigation";
 import { useEffect, useState, Suspense } from "react";
+import RouteMap from "@/components/RouteMap";
 
 interface SafetyData {
   score?: number;
@@ -11,6 +12,9 @@ interface SafetyData {
   visibility?: string;
   explanation?: string;
   error?: string;
+  geometry?: any;
+  start?: { lat: number; lng: number };
+  end?: { lat: number; lng: number };
 }
 
 function RouteScoreContent() {
@@ -100,12 +104,22 @@ function RouteScoreContent() {
           <RiskRow label="Visibility" value={data.visibility} />
         </div>
 
-        {/* Map Preview */}
-        <div className="mt-10 bg-gradient-to-br from-purple-100 to-purple-50 rounded-2xl h-56 flex items-center justify-center relative border border-purple-200">
-          <p className="text-purple-700 text-sm opacity-80">Map preview coming soon</p>
-          <div className="absolute top-10 left-10 w-4 h-4 bg-purple-600 rounded-full"></div>
-          <div className="absolute bottom-10 right-12 w-4 h-4 bg-pink-500 rounded-full"></div>
-        </div>
+        {/* Interactive Route Map */}
+        {data?.geometry && data?.start && data?.end ? (
+          <RouteMap
+            route={{
+              start: { lat: data.start.lat, lng: data.start.lng },
+              end: { lat: data.end.lat, lng: data.end.lng },
+              geometry: data.geometry,
+            }}
+          />
+        ) : (
+          <div className="mt-10 bg-gradient-to-br from-purple-100 to-purple-50 rounded-2xl h-56 flex items-center justify-center relative border border-purple-200">
+            <p className="text-purple-700 text-sm opacity-80">Map preview coming soon</p>
+            <div className="absolute top-10 left-10 w-4 h-4 bg-purple-600 rounded-full"></div>
+            <div className="absolute bottom-10 right-12 w-4 h-4 bg-pink-500 rounded-full"></div>
+          </div>
+        )}
 
         <button className="w-full mt-8 bg-purple-600 hover:bg-purple-700 text-white py-3 rounded-xl text-lg font-semibold transition">
           Try a safer route instead
