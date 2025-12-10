@@ -13,22 +13,30 @@
     "isolatedModules": true,
     "jsx": "react-jsx",
     "incremental": true,
+
     "plugins": [
       {
         "name": "next"
       }
     ],
+
     "paths": {
       "@/*": ["./*"]
-    }
+    },
+
+    /* ⭐ Added so Mapbox declaration file is recognized */
+    "typeRoots": ["./types", "./node_modules/@types"]
   },
+
   "include": [
     "next-env.d.ts",
     "**/*.ts",
     "**/*.tsx",
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts",
-    "**/*.mts"
+    "**/*.mts",
+    "types/**/*.d.ts"  // ⭐ Ensures your custom declaration loads
   ],
+
   "exclude": ["node_modules"]
 }

@@ -1,19 +1,42 @@
+import { NextResponse } from "next/server";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
 export async function POST(req: Request) {
-  const { message } = await req.json();
+  try {
+    const { message, context } = await req.json();
+    console.log("💬 Assistant request:", { message, context });
 
-  const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
-  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+    // This is for the AI assistant chat, not route scoring
+    const ai = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
+    const model = ai.getGenerativeModel({ model: "gemini-pro" });
 
-  const prompt = `
-    You are SafeHER, a calm women’s safety assistant.
-    Speak empathetically, clearly, and without judgment.
-    The user says: "${message}"
-    Respond with guidance, grounding steps, and safety options.
-  `;
+    const prompt = `
+      You are SafeHER, an AI assistant focused on women's safety.
+      
+      User message: ${message}
+      Context: ${JSON.stringify(context)}
+      
+      Provide helpful, supportive advice about personal safety, route planning, 
+      or general guidance. Keep responses concise and actionable.
+      
+      Respond in plain text (not JSON).
+    `;
 
-  const result = await model.generateContent(prompt);
+    console.log("🤖 Requesting assistant response...");
+    const result = await model.generateContent(prompt);
+    const text = result.response.text();
+    console.log("✅ Assistant response generated");
 
-  return Response.json({ reply: result.response.text() });
+    return NextResponse.json({ 
+      message: text,
+      timestamp: new Date().toISOString()
+    });
+
+  } catch (err) {
+    console.error("❌ Assistant error:", err);
+    return NextResponse.json(
+      { error: "Failed to get assistant response" },
+      { status: 500 }
+    );
+  }
 }

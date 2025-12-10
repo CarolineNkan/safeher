@@ -14,11 +14,13 @@
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
+    "@mapbox/mapbox-sdk": "^0.16.2",
     "@supabase/supabase-js": "^2.86.2",
     "axios": "^1.13.2",
     "lucide-react": "^0.556.0",
     "mapbox-gl": "^3.17.0",
     "next": "16.0.7",
+    "openai": "^6.10.0",
     "react": "19.2.0",
     "react-dom": "19.2.0"
   },

@@ -2,19 +2,78 @@
 
 import Link from "next/link";
 import { FormEvent, useState } from "react";
+import { useRouter } from "next/navigation";
 
 export default function HomePage() {
   const [query, setQuery] = useState("");
+  const [loading, setLoading] = useState(false);
+  const router = useRouter();
 
-  function handleSearch(e: FormEvent) {
+  async function handleSearch(e: FormEvent) {
     e.preventDefault();
-    // For now we just log it. Later: navigate to /map with query as param.
-    console.log("Searching for:", query);
+    if (!query.trim()) return;
+
+    setLoading(true);
+
+    try {
+      console.log("🔍 Starting geocoding for query:", query);
+      
+      // 1. Geocode the searched destination using Mapbox
+      const geoRes = await fetch(
+        `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(
+          query
+        )}.json?access_token=${process.env.NEXT_PUBLIC_MAPBOX_TOKEN}`
+      );
+
+      const geoData = await geoRes.json();
+      console.log("📍 Geocoding response:", geoData);
+
+      if (!geoData.features?.length) {
+        alert("Couldn't find that location.");
+        setLoading(false);
+        return;
+      }
+
+      const endCoords = {
+        lat: geoData.features[0].center[1],
+        lng: geoData.features[0].center[0],
+      };
+
+      // For now, fake the user's start location:
+      const startCoords = { lat: 43.6532, lng: -79.3832 }; // Toronto as placeholder
+
+      console.log("🗺️ Route coordinates:", { start: startCoords, end: endCoords });
+
+      // 2. Call your AI route scoring API
+      const scoreRes = await fetch("/api/route-score", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          start: startCoords,
+          end: endCoords,
+          stories: [], // send empty for now
+        }),
+      });
+
+      const data = await scoreRes.json();
+      console.log("🤖 AI scoring response:", data);
+
+      // 3. Redirect to /routescore with full AI data
+      router.push(
+        `/routescore?data=${encodeURIComponent(JSON.stringify(data))}`
+      );
+    } catch (err) {
+      console.error("❌ Route analysis error:", err);
+      alert("Failed to analyze route.");
+    }
+
+    setLoading(false);
   }
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-purple-50 via-white to-purple-50 flex items-center justify-center px-4 py-10">
       <div className="w-full max-w-4xl">
+        
         {/* Top header row */}
         <div className="flex items-center justify-between mb-6">
           <div>
@@ -31,16 +90,14 @@ export default function HomePage() {
 
           <div className="hidden sm:flex items-center justify-center">
             <div className="w-11 h-11 rounded-full bg-purple-600 flex items-center justify-center shadow-md">
-              <span className="text-xl" aria-hidden="true">
-                💜
-              </span>
-              <span className="sr-only">SafeHER</span>
+              <span className="text-xl">💜</span>
             </div>
           </div>
         </div>
 
         {/* Main card */}
         <div className="bg-white rounded-3xl shadow-xl border border-purple-100 px-4 sm:px-6 md:px-8 py-6 md:py-8">
+          
           {/* Search bar */}
           <form
             onSubmit={handleSearch}
@@ -62,19 +119,20 @@ export default function HomePage() {
 
             <button
               type="submit"
+              disabled={loading}
               className="whitespace-nowrap px-5 py-3 rounded-2xl bg-purple-600 text-white text-sm sm:text-base font-medium
-                         hover:bg-purple-700 shadow-sm transition"
+                         hover:bg-purple-700 shadow-sm transition disabled:opacity-40"
             >
-              Search
+              {loading ? "Analyzing…" : "Search"}
             </button>
           </form>
 
           {/* Map preview */}
           <div className="rounded-3xl bg-gradient-to-tr from-purple-200 via-purple-100 to-pink-100 h-56 md:h-64 mb-6 md:mb-8 relative overflow-hidden">
-            {/* Decorative circles */}
             <div className="absolute -left-10 bottom-0 w-32 h-32 bg-white/40 rounded-full" />
             <div className="absolute right-0 -top-10 w-40 h-40 bg-white/40 rounded-full" />
-            {/* Fake route line */}
+
+            {/* Fake dashed route */}
             <div className="absolute inset-x-10 inset-y-10 border-2 border-dashed border-purple-400/70 rounded-3xl" />
             <div className="absolute left-1/4 top-1/3 w-3 h-3 bg-purple-700 rounded-full shadow" />
             <div className="absolute right-1/5 bottom-1/4 w-3 h-3 bg-pink-500 rounded-full shadow" />
@@ -91,9 +149,7 @@ export default function HomePage() {
               </div>
 
               <div>
-                <p className="text-sm font-semibold text-purple-900">
-                  Map preview
-                </p>
+                <p className="text-sm font-semibold text-purple-900">Map preview</p>
                 <p className="text-xs text-purple-900/80 mt-1 max-w-xs">
                   Soon you&apos;ll be able to see safer paths, recent alerts, and
                   places women avoid — all in one glance.
@@ -108,9 +164,7 @@ export default function HomePage() {
               href="/sos"
               className="rounded-2xl bg-purple-600 text-white px-4 py-3 flex flex-col gap-1 shadow-sm hover:bg-purple-700 transition"
             >
-              <span className="text-xs uppercase tracking-wide opacity-90">
-                SOS
-              </span>
+              <span className="text-xs uppercase tracking-wide opacity-90">SOS</span>
               <span className="font-semibold">Quick alert</span>
               <span className="text-[11px] opacity-90">
                 Share location with trusted contacts.
@@ -121,9 +175,7 @@ export default function HomePage() {
               href="/stories"
               className="rounded-2xl bg-purple-50 px-4 py-3 flex flex-col gap-1 hover:bg-purple-100 transition"
             >
-              <span className="text-xs uppercase tracking-wide text-purple-700">
-                Stories
-              </span>
+              <span className="text-xs uppercase tracking-wide text-purple-700">Stories</span>
               <span className="font-semibold text-gray-900">Read & share</span>
               <span className="text-[11px] text-gray-600">
                 See what other women have experienced.
@@ -134,9 +186,7 @@ export default function HomePage() {
               href="/map"
               className="rounded-2xl bg-purple-50 px-4 py-3 flex flex-col gap-1 hover:bg-purple-100 transition"
             >
-              <span className="text-xs uppercase tracking-wide text-purple-700">
-                Safety map
-              </span>
+              <span className="text-xs uppercase tracking-wide text-purple-700">Safety map</span>
               <span className="font-semibold text-gray-900">Explore areas</span>
               <span className="text-[11px] text-gray-600">
                 Check how safe a neighborhood feels.
@@ -147,15 +197,14 @@ export default function HomePage() {
               href="/assistant"
               className="rounded-2xl bg-purple-50 px-4 py-3 flex flex-col gap-1 hover:bg-purple-100 transition"
             >
-              <span className="text-xs uppercase tracking-wide text-purple-700">
-                Assistant
-              </span>
+              <span className="text-xs uppercase tracking-wide text-purple-700">Assistant</span>
               <span className="font-semibold text-gray-900">Talk it out</span>
               <span className="text-[11px] text-gray-600">
                 Ask SafeHER for guidance in the moment.
               </span>
             </Link>
           </div>
+
         </div>
       </div>
     </div>
