@@ -1,5 +1,11 @@
 import { NextResponse } from "next/server";
 import OpenAI from "openai";
+import { createClient } from "@supabase/supabase-js";
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
 export async function POST(req: Request) {
   try {
@@ -63,6 +69,19 @@ export async function POST(req: Request) {
     const geometry = routeData.routes[0].geometry;
     console.log("✅ Route found:", { distance, duration });
 
+    // Fetch stories related to the route (placeholder RPC for now)
+    const { data: nearbyStories, error: storyError } = await supabase
+      .rpc("stories_near_route", {
+        lat1: start.lat,
+        lng1: start.lng,
+        lat2: end.lat,
+        lng2: end.lng,
+      });
+
+    if (storyError) {
+      console.error("Story fetch error:", storyError);
+    }
+
     // 2. OpenAI GPT-4 Safety Scoring
     if (!process.env.OPENAI_API_KEY) {
       console.error("❌ OPENAI_API_KEY not found in environment");
@@ -81,6 +100,7 @@ export async function POST(req: Request) {
         geometry,
         start,
         end,
+        stories: nearbyStories || [],
       });
     }
 
@@ -98,7 +118,7 @@ export async function POST(req: Request) {
 
 Distance: ${distance} meters  
 Duration: ${duration} seconds  
-Stories: ${JSON.stringify(stories)}
+Stories: ${JSON.stringify(nearbyStories || [])}
 
 Respond ONLY with JSON in this exact format:
 {
@@ -133,6 +153,7 @@ Respond ONLY with JSON in this exact format:
       geometry,
       start,
       end,
+      stories: nearbyStories || [],
     });
 
   } catch (err) {

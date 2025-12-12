@@ -7,6 +7,12 @@ interface Message {
   timestamp: Date;
   isRetryable?: boolean;
   originalMessageId?: string;
+  location?: {
+    lat: number;
+    lng: number;
+    address?: string;
+  };
+  communityDataUsed?: boolean;
 }
 
 interface MessageBubbleProps {
@@ -39,6 +45,22 @@ export default function MessageBubble({ message, onRetry }: MessageBubbleProps) 
         <p className="text-base leading-relaxed whitespace-pre-wrap break-words">
           {message.content}
         </p>
+
+        {/* Community data indicator for assistant messages */}
+        {message.role === 'assistant' && message.communityDataUsed && (
+          <div className="mt-2 flex items-center gap-1 text-xs text-gray-500">
+            <span className="w-1.5 h-1.5 rounded-full bg-purple-500"></span>
+            <span>Based on local community data</span>
+          </div>
+        )}
+
+        {/* Location indicator for assistant messages */}
+        {message.role === 'assistant' && message.location && (
+          <div className="mt-1 flex items-center gap-1 text-xs text-gray-500">
+            <span>📍</span>
+            <span>Location-aware response</span>
+          </div>
+        )}
         
         {/* Retry button for error messages */}
         {isError && message.isRetryable && message.originalMessageId && onRetry && (

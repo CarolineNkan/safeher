@@ -10,13 +10,17 @@
     "test": "vitest --run",
     "test:watch": "vitest",
     "test:ui": "vitest --ui",
-    "test:coverage": "vitest --coverage"
+    "test:coverage": "vitest --coverage",
+    "db:migrate": "node scripts/run-migration.js",
+    "db:verify": "node scripts/verify-database.js"
   },
   "dependencies": {
     "@google/generative-ai": "^0.24.1",
+    "@liquidmetal-ai/raindrop": "^0.13.0",
     "@mapbox/mapbox-sdk": "^0.16.2",
     "@supabase/supabase-js": "^2.86.2",
     "axios": "^1.13.2",
+    "dotenv": "^17.2.3",
     "lucide-react": "^0.556.0",
     "mapbox-gl": "^3.17.0",
     "next": "16.0.7",

@@ -11,6 +11,12 @@ interface Message {
   timestamp: Date;
   isRetryable?: boolean;
   originalMessageId?: string;
+  location?: {
+    lat: number;
+    lng: number;
+    address?: string;
+  };
+  communityDataUsed?: boolean;
 }
 
 // Generate unique message ID
@@ -22,9 +28,88 @@ export default function AssistantPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState<string>("");
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [userLocation, setUserLocation] = useState<{lat: number; lng: number; address?: string} | null>(null);
+  const [locationLoading, setLocationLoading] = useState(false);
+  const [showLocationPrompt, setShowLocationPrompt] = useState(true);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Get user location for contextual safety advice
+  useEffect(() => {
+    if (showLocationPrompt) {
+      setTimeout(() => {
+        requestLocation();
+      }, 1000);
+    }
+  }, []);
+
+  const requestLocation = () => {
+    if (!navigator.geolocation) {
+      console.log("Geolocation not supported");
+      return;
+    }
+
+    setLocationLoading(true);
+    navigator.geolocation.getCurrentPosition(
+      async (position) => {
+        const location = {
+          lat: position.coords.latitude,
+          lng: position.coords.longitude
+        };
+        
+        // Try to get address from coordinates
+        let locationWithAddress = { ...location, address: undefined as string | undefined };
+        try {
+          const response = await fetch(
+            `https://api.mapbox.com/geocoding/v5/mapbox.places/${location.lng},${location.lat}.json?access_token=${process.env.NEXT_PUBLIC_MAPBOX_TOKEN}`
+          );
+          const data = await response.json();
+          if (data.features?.[0]) {
+            locationWithAddress.address = data.features[0].place_name;
+          }
+        } catch (error) {
+          console.error("Failed to get address:", error);
+        }
+
+        setUserLocation(locationWithAddress);
+        setLocationLoading(false);
+        setShowLocationPrompt(false);
+        
+        // Add welcome message with location context
+        const welcomeMessage: Message = {
+          id: generateMessageId(),
+          role: "assistant",
+          content: `Hi! I'm SafeHER Assistant. I can see you're ${locationWithAddress.address ? `near ${locationWithAddress.address}` : 'in your current area'}. I'm here to help with any safety questions or concerns you might have. Feel free to ask about walking routes, area safety, or any precautions you should take.`,
+          timestamp: new Date(),
+          location: locationWithAddress,
+          communityDataUsed: false
+        };
+        
+        setMessages([welcomeMessage]);
+      },
+      (error) => {
+        console.error("Location error:", error);
+        setLocationLoading(false);
+        setShowLocationPrompt(false);
+        
+        // Add welcome message without location
+        const welcomeMessage: Message = {
+          id: generateMessageId(),
+          role: "assistant", 
+          content: "Hi! I'm SafeHER Assistant. I'm here to help with any safety questions or concerns you might have. You can ask me about walking routes, area safety, precautions to take, or any other safety-related topics. How can I help you today?",
+          timestamp: new Date()
+        };
+        
+        setMessages([welcomeMessage]);
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 300000
+      }
+    );
+  };
 
   // Auto-scroll
   useEffect(() => {
@@ -69,7 +154,13 @@ export default function AssistantPage() {
       const res = await fetch("/api/assistant", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: userMessage.content }),
+        body: JSON.stringify({ 
+          message: userMessage.content,
+          location: userLocation,
+          context: {
+            previousMessages: messages.slice(-3).map(m => ({ role: m.role, content: m.content }))
+          }
+        }),
         signal: controller.signal,
       });
 
@@ -87,15 +178,17 @@ export default function AssistantPage() {
       }
 
       const data = await res.json();
-      if (!data || typeof data.reply !== "string") {
+      if (!data || typeof data.message !== "string") {
         throw new Error("Unexpected response from assistant.");
       }
 
       const assistantMessage: Message = {
         id: generateMessageId(),
         role: "assistant",
-        content: data.reply,
+        content: data.message,
         timestamp: new Date(),
+        location: data.location,
+        communityDataUsed: data.communityDataUsed
       };
 
       setMessages((prev) => [...prev, assistantMessage]);
@@ -148,6 +241,40 @@ export default function AssistantPage() {
             Share what you’re feeling, where you're going, or what’s worrying you.
             SafeHER will help you think through safer options.
           </p>
+          {/* Location Status */}
+          {locationLoading && (
+            <div className="mt-4 flex items-center justify-center gap-2 text-sm text-purple-600">
+              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-purple-600"></div>
+              <span>Getting your location for better safety advice...</span>
+            </div>
+          )}
+
+          {userLocation && (
+            <div className="mt-4 inline-flex items-center gap-2 px-3 py-1 bg-green-50 text-green-700 rounded-full text-sm">
+              <span className="w-2 h-2 rounded-full bg-green-500"></span>
+              <span>Location-aware safety guidance enabled</span>
+            </div>
+          )}
+
+          {showLocationPrompt && !locationLoading && !userLocation && (
+            <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800 max-w-md mx-auto">
+              <p className="mb-2">Enable location for personalized safety advice based on your area's community data.</p>
+              <div className="flex gap-2 justify-center">
+                <button
+                  onClick={requestLocation}
+                  className="px-3 py-1 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition text-xs"
+                >
+                  Enable Location
+                </button>
+                <button
+                  onClick={() => setShowLocationPrompt(false)}
+                  className="px-3 py-1 text-blue-600 hover:text-blue-800 transition text-xs"
+                >
+                  Skip
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </header>
 
@@ -159,6 +286,31 @@ export default function AssistantPage() {
         aria-label="Chat conversation"
       >
         <div className="max-w-2xl mx-auto space-y-2">
+          {/* Suggested questions when no messages */}
+          {messages.length === 0 && !isLoading && (
+            <div className="space-y-4 mb-6">
+              <div className="text-center text-gray-500 text-sm mb-4">
+                Try asking me about:
+              </div>
+              <div className="grid gap-2">
+                {[
+                  "Is it safe to walk here at night?",
+                  "What precautions should I take?", 
+                  "Is this area safe for students?",
+                  "How can I stay safer while walking alone?"
+                ].map((question, index) => (
+                  <button
+                    key={index}
+                    onClick={() => setInput(question)}
+                    className="text-left p-3 bg-purple-50 hover:bg-purple-100 rounded-lg text-sm text-gray-700 transition border border-purple-100"
+                  >
+                    💬 {question}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           {messages.map((m) => (
             <MessageBubble
               key={m.id}
@@ -205,6 +357,7 @@ export default function AssistantPage() {
             type="submit"
             disabled={isLoading || !input.trim()}
             className="bg-purple-600 hover:bg-purple-700 active:bg-purple-800 text-white font-semibold px-6 py-3 rounded-2xl shadow-md hover:shadow-lg disabled:bg-gray-300 transition-all"
+            aria-label="Send message"
           >
             Send
           </button>

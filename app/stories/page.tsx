@@ -1,115 +1,178 @@
-// app/stories/page.tsx
 "use client";
 
-import ShareStoryButton from "@/components/ShareStoryButton";
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabaseClient";
 import StoryCard from "@/components/StoryCard";
 
-const MOCK_STORIES = [
-  {
-    id: 1,
-    author: "Lebo M.",
-    isAnonymous: false,
-    location: "Downtown bus stop",
-    timeAgo: "2 hours ago",
-    category: "Street harassment",
-    text:
-      "I was walking back from a late shift and a group of men kept making comments as I passed. " +
-      "Another woman at the stop came to stand beside me and we pretended to be on a phone call together. " +
-      "Just want to flag this spot for other women who walk here at night.",
-    tags: ["nightShift", "harassment", "busStop"],
-  },
-  {
-    id: 2,
-    author: "Anonymous",
-    isAnonymous: true,
-    location: "Elm & 3rd alleyway",
-    timeAgo: "Yesterday",
-    category: "Unsafe route",
-    text:
-      "That shortcut alley behind the grocery store feels really unsafe after 8pm. " +
-      "Poor lighting, almost no foot traffic, and cars can’t see you from the main road. " +
-      "I’ve switched to the longer main street route and it feels so much better.",
-    tags: ["lighting", "alleyway", "routeChange"],
-  },
-  {
-    id: 3,
-    author: "Nadia K.",
-    isAnonymous: false,
-    location: "Eagle Street",
-    timeAgo: "3 days ago",
-    category: "Safety tip",
-    text:
-      "If you have to walk past the bar strip on Eagle Street, I recommend crossing to the side with the pharmacy. " +
-      "There’s better lighting, more cameras, and usually more people around. " +
-      "Also, share your live location with someone you trust.",
-    tags: ["safetyTip", "routeAdvice", "eagleStreet"],
-  },
-];
+interface Story {
+  id: string;
+  message: string;
+  created_at: string;
+  lat?: number;
+  lng?: number;
+}
 
 export default function StoriesPage() {
-  const handleShareClick = () => {
-    // Later: open a modal or navigate to /stories/new
-    console.log("Share story clicked");
-  };
+  const [story, setStory] = useState("");
+  const [stories, setStories] = useState<Story[]>([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const router = useRouter();
+
+  // Initial fetch of stories
+  useEffect(() => {
+    fetchStories();
+  }, []);
+
+  // Real-time subscription
+  useEffect(() => {
+    const channel = supabase
+      .channel("stories-feed")
+      .on(
+        "postgres_changes",
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "stories",
+        },
+        (payload) => {
+          console.log("New story received:", payload);
+          const newStory = payload.new as Story;
+          setStories((current) => [newStory, ...current]);
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
+
+  async function fetchStories() {
+    try {
+      const response = await fetch("/api/stories/list");
+      const data = await response.json();
+      setStories(data);
+    } catch (error) {
+      console.error("Failed to fetch stories:", error);
+    }
+  }
+
+  async function submit() {
+    if (!story.trim()) {
+      alert("Please write a story first.");
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      // Optimistic UI update - add story immediately
+      const optimisticStory: Story = {
+        id: `temp-${Date.now()}`,
+        message: story,
+        created_at: new Date().toISOString(),
+      };
+      
+      setStories((current) => [optimisticStory, ...current]);
+      setStory("");
+
+      // Submit to server
+      const response = await fetch("/api/stories/submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          story,
+          lat: null,
+          lng: null,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        // Remove optimistic story and let real-time update handle the real one
+        setStories((current) => 
+          current.filter((s) => s.id !== optimisticStory.id)
+        );
+        router.refresh();
+      } else {
+        // Remove optimistic story on error
+        setStories((current) => 
+          current.filter((s) => s.id !== optimisticStory.id)
+        );
+        alert("Failed to submit story. Please try again.");
+      }
+    } catch (error) {
+      console.error("Submit error:", error);
+      // Remove optimistic story on error
+      setStories((current) => 
+        current.filter((s) => s.id.startsWith("temp-"))
+      );
+      alert("Failed to submit story. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-purple-50 via-white to-purple-50 px-4 py-10 flex justify-center">
-      <main className="w-full max-w-3xl">
-        {/* Header */}
-        <header className="flex items-center justify-between gap-4 mb-6">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-purple-600 flex items-center justify-center shadow-md">
-              <span className="text-xl" aria-hidden="true">
-                💜
-              </span>
-              <span className="sr-only">Community Stories</span>
-            </div>
-            <div>
-              <h1 className="text-2xl sm:text-3xl font-semibold text-gray-900">
-                Community Stories
-              </h1>
-              <p className="text-sm text-gray-600">
-                Real experiences from women walking these same streets.
-              </p>
-            </div>
-          </div>
+    <div className="max-w-3xl mx-auto p-6 space-y-6">
+      {/* HEADER */}
+      <div className="text-center space-y-2">
+        <h1 className="text-3xl font-bold text-white">Community Stories</h1>
+        <p className="text-purple-300">
+          Share your experiences and help other women stay safe
+        </p>
+      </div>
 
-          <div className="hidden sm:block">
-            <ShareStoryButton onClick={handleShareClick} />
+      {/* COMPOSER */}
+      <div className="bg-[#0e0f1a] border border-purple-700/30 rounded-2xl p-5 space-y-4">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-full bg-gradient-to-r from-purple-600 to-fuchsia-600 flex items-center justify-center text-white font-bold">
+            You
           </div>
-        </header>
-
-        {/* Mobile share button */}
-        <div className="sm:hidden mb-4">
-          <ShareStoryButton onClick={handleShareClick} />
+          <p className="text-white font-semibold">Share your safety experience</p>
         </div>
 
-        {/* Info banner */}
-        <section className="mb-5">
-          <div className="rounded-2xl bg-purple-50 border border-purple-100 px-4 py-3 text-xs sm:text-sm text-purple-900">
-            <p className="font-medium">
-              Your voice matters.
-            </p>
-            <p className="mt-1">
-              Sharing what you&apos;ve experienced helps other women plan safer routes,
-              avoid unsafe spots, and feel less alone.
-            </p>
+        <textarea
+          className="w-full p-4 rounded-xl bg-black/20 text-white border border-purple-600/40 focus:border-purple-400 outline-none min-h-[120px] resize-none"
+          placeholder="What happened? Use #hashtags to categorize your experience..."
+          value={story}
+          onChange={(e) => setStory(e.target.value)}
+          disabled={isSubmitting}
+        />
+
+        <div className="flex justify-between items-center">
+          <p className="text-xs text-gray-500">
+            Your story helps other women plan safer routes
+          </p>
+          <button
+            className="bg-gradient-to-r from-purple-600 to-fuchsia-600 text-white py-2 px-6 rounded-xl font-semibold hover:opacity-90 transition disabled:opacity-50"
+            onClick={submit}
+            disabled={isSubmitting || !story.trim()}
+          >
+            {isSubmitting ? "Sharing..." : "Share Story"}
+          </button>
+        </div>
+      </div>
+
+      {/* FEED */}
+      <div className="space-y-4">
+        {stories.length === 0 && (
+          <div className="text-center py-12">
+            <p className="text-gray-400">No stories yet — be the first to share!</p>
           </div>
-        </section>
+        )}
 
-        {/* Stories list */}
-        <section className="space-y-4 mb-10">
-          {MOCK_STORIES.map((story) => (
-            <StoryCard key={story.id} {...story} />
-          ))}
-        </section>
-
-        {/* Soft footer note */}
-        <footer className="text-center text-[11px] text-gray-500 max-w-md mx-auto">
-          SafeHER is a community-driven space. Stories are personal experiences, not
-          official reports. Always trust your instincts and prioritize your safety.
-        </footer>
-      </main>
+        {stories.map((storyItem) => (
+          <StoryCard
+            key={storyItem.id}
+            id={storyItem.id}
+            message={storyItem.message}
+            created_at={storyItem.created_at}
+          />
+        ))}
+      </div>
     </div>
   );
 }
