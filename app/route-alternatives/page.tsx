@@ -1,6 +1,8 @@
-export const dynamic = "force-dynamic";
 "use client";
-import { useState, useEffect } from "react";
+
+export const dynamic = "force-dynamic";
+
+import { useState, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import RouteAlternativesMap from "../../components/RouteAlternativesMap";
 import RouteComparison from "../../components/RouteComparison";
@@ -39,60 +41,68 @@ interface RouteAlternativesData {
   end: RouteCoordinates;
 }
 
-export default function RouteAlternativesPage() {
+/* ---------------- INNER COMPONENT (uses search params) ---------------- */
+
+function RouteAlternativesContent() {
   const searchParams = useSearchParams();
   const [routeData, setRouteData] = useState<RouteAlternativesData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const dataParam = searchParams.get('data');
+    const dataParam = searchParams.get("data");
+
     if (dataParam) {
       try {
         const parsedData = JSON.parse(decodeURIComponent(dataParam));
         setRouteData(parsedData);
+        setLoading(false);
+        return;
       } catch (err) {
-        console.error('Failed to parse route data:', err);
-        setError('Invalid route data');
+        console.error("Failed to parse route data:", err);
+        setError("Invalid route data");
+        setLoading(false);
+        return;
       }
-    } else {
-      // Fetch route alternatives if no data in URL
-      fetchRouteAlternatives();
     }
-    setLoading(false);
+
+    fetchRouteAlternatives();
   }, [searchParams]);
 
   const fetchRouteAlternatives = async () => {
-    const from = searchParams.get('from');
-    const to = searchParams.get('to');
+    const from = searchParams.get("from");
+    const to = searchParams.get("to");
 
     if (!from || !to) {
-      setError('Missing route parameters');
+      setError("Missing route parameters");
+      setLoading(false);
       return;
     }
 
     try {
-      const [startLat, startLng] = from.split(',').map(Number);
-      const [endLat, endLng] = to.split(',').map(Number);
+      const [startLat, startLng] = from.split(",").map(Number);
+      const [endLat, endLng] = to.split(",").map(Number);
 
-      const response = await fetch('/api/route-alternatives', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+      const response = await fetch("/api/route-alternatives", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           start: { lat: startLat, lng: startLng },
-          end: { lat: endLat, lng: endLng }
-        })
+          end: { lat: endLat, lng: endLng },
+        }),
       });
 
       if (!response.ok) {
-        throw new Error('Failed to fetch route alternatives');
+        throw new Error("Failed to fetch route alternatives");
       }
 
       const data = await response.json();
       setRouteData(data);
     } catch (err) {
-      console.error('Route alternatives error:', err);
-      setError('Failed to load route alternatives');
+      console.error("Route alternatives error:", err);
+      setError("Failed to load route alternatives");
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -117,7 +127,9 @@ export default function RouteAlternativesPage() {
           <h1 className="text-xl font-semibold text-gray-900 mb-2">
             Unable to Load Routes
           </h1>
-          <p className="text-gray-600 mb-4">{error || 'No route data available'}</p>
+          <p className="text-gray-600 mb-4">
+            {error || "No route data available"}
+          </p>
           <button
             onClick={() => window.history.back()}
             className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition"
@@ -171,5 +183,21 @@ export default function RouteAlternativesPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+/* ---------------- PAGE EXPORT (Suspense wrapper) ---------------- */
+
+export default function RouteAlternativesPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-purple-50 flex items-center justify-center text-gray-600">
+          Loading route analysis…
+        </div>
+      }
+    >
+      <RouteAlternativesContent />
+    </Suspense>
   );
 }
