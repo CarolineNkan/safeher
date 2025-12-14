@@ -6,34 +6,21 @@ import Link from "next/link";
 
 export default function RouteScoreClient() {
   const searchParams = useSearchParams();
-  const [loading, setLoading] = useState(true);
   const [score, setScore] = useState<number | null>(null);
-  const [risk, setRisk] = useState<string>("");
+  const [risk, setRisk] = useState("Medium");
 
   useEffect(() => {
     const scoreParam = searchParams.get("score");
     const riskParam = searchParams.get("risk");
 
-    if (scoreParam) {
-      setScore(Number(scoreParam));
-      setRisk(riskParam || "Medium");
-    }
-
-    setLoading(false);
+    if (scoreParam) setScore(Number(scoreParam));
+    if (riskParam) setRisk(riskParam);
   }, [searchParams]);
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-purple-50 flex items-center justify-center">
-        <p>Loading route score…</p>
-      </div>
-    );
-  }
 
   if (score === null) {
     return (
       <div className="min-h-screen bg-purple-50 flex items-center justify-center">
-        <p className="text-red-600">No route score available.</p>
+        <p>No route score available.</p>
       </div>
     );
   }
@@ -46,10 +33,10 @@ export default function RouteScoreClient() {
 
       <h1 className="text-3xl font-bold mt-6">How safe is this route?</h1>
 
-      <div className="mt-6">
-        <p className="text-5xl font-bold text-purple-600">{score}/100</p>
-        <p className="text-gray-600 mt-1">{risk} risk</p>
-      </div>
+      <p className="text-5xl font-bold text-purple-600 mt-4">
+        {score}/100
+      </p>
+      <p className="text-gray-600">{risk} risk</p>
 
       <div className="mt-8 flex gap-4">
         <Link
