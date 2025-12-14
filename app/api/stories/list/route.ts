@@ -1,54 +1,45 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-);
+import { supabase } from "@/lib/supabaseClient";
 
 export async function GET() {
-  try {
-    // Get all stories first
-    const { data: stories, error: storiesError } = await supabase
-      .from("stories")
-      .select("*")
-      .order("created_at", { ascending: false });
+  const { data, error } = await supabase
+    .from("stories")
+    .select(`
+      id,
+      message,
+      lat,
+      lng,
+      created_at,
+      client_id,
+      story_reactions(reaction)
+    `)
+    .order("created_at", { ascending: false });
 
-    if (storiesError) {
-      console.error("Stories fetch error:", storiesError);
-      return NextResponse.json({ error: "Failed to load stories" }, { status: 500 });
-    }
-
-    // Get reaction counts for each story
-    const storiesWithCounts = await Promise.all(
-      stories.map(async (story) => {
-        const { data: counts, error: countsError } = await supabase
-          .rpc('get_reaction_counts', { story_uuid: story.id });
-
-        if (countsError) {
-          console.error(`Reaction counts error for story ${story.id}:`, countsError);
-          // Return story with zero counts if there's an error
-          return {
-            ...story,
-            likes: 0,
-            helpful: 0,
-            noted: 0
-          };
-        }
-
-        return {
-          ...story,
-          likes: counts[0]?.likes || 0,
-          helpful: counts[0]?.helpful || 0,
-          noted: counts[0]?.noted || 0
-        };
-      })
-    );
-
-    return NextResponse.json(storiesWithCounts);
-
-  } catch (error) {
-    console.error("List stories error:", error);
-    return NextResponse.json({ error: "Failed to load stories" }, { status: 500 });
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
   }
+
+  const stories = data.map((s: any) => {
+    let weight = 0;
+
+    s.story_reactions.forEach((r: any) => {
+      if (r.reaction === "like") weight += 1;
+      if (r.reaction === "helpful") weight += 2;
+      if (r.reaction === "noted") weight += 0.5;
+    });
+
+    return {
+      ...s,
+      signal_weight: weight,
+      reactions: {
+        like: s.story_reactions.filter((r: any) => r.reaction === "like").length,
+        helpful: s.story_reactions.filter((r: any) => r.reaction === "helpful").length,
+        noted: s.story_reactions.filter((r: any) => r.reaction === "noted").length,
+      },
+    };
+  });
+
+  return NextResponse.json({ stories });
 }
+
+

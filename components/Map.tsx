@@ -1,22 +1,18 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import mapboxgl from "mapbox-gl";
 import "mapbox-gl/dist/mapbox-gl.css";
 
 mapboxgl.accessToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN!;
 
-interface Story {
+type Story = {
   id: string;
   message: string;
   lat: number | null;
   lng: number | null;
   created_at: string;
-  user_id: string;
-  likes: number;
-  helpful: number;
-  noted: number;
-}
+};
 
 interface MapProps {
   className?: string;
@@ -24,221 +20,203 @@ interface MapProps {
 
 export default function Map({ className = "w-full h-96" }: MapProps) {
   const mapContainer = useRef<HTMLDivElement | null>(null);
-  const map = useRef<mapboxgl.Map | null>(null);
-  const [heatmapEnabled, setHeatmapEnabled] = useState(false);
+  const mapRef = useRef<mapboxgl.Map | null>(null);
+
   const [stories, setStories] = useState<Story[]>([]);
   const [loading, setLoading] = useState(false);
+  const [heatmapEnabled, setHeatmapEnabled] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch stories with location data
-  const fetchStories = async () => {
+  const storiesWithLocation = useMemo(
+    () => stories.filter((s) => typeof s.lat === "number" && typeof s.lng === "number"),
+    [stories]
+  );
+
+  async function fetchStories() {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch('/api/stories/list');
-      if (response.ok) {
-        const data = await response.json();
-        // Filter stories that have location data
-        const storiesWithLocation = data.filter((story: Story) => 
-          story.lat !== null && story.lng !== null
-        );
-        setStories(storiesWithLocation);
-        console.log(`Loaded ${storiesWithLocation.length} stories with location data`);
-      } else {
-        throw new Error('Failed to fetch stories');
-      }
-    } catch (error) {
-      console.error('Failed to fetch stories:', error);
-      setError('Failed to load community data');
+      const res = await fetch("/api/stories/list", { cache: "no-store" });
+      if (!res.ok) throw new Error("Failed to fetch stories");
+      const data = await res.json();
+      setStories(Array.isArray(data) ? data : []);
+    } catch (e: any) {
+      setError(e?.message || "Failed to load community data");
     } finally {
       setLoading(false);
     }
-  };
+  }
 
-  // Convert stories to GeoJSON FeatureCollection
-  const createGeoJSONFromStories = (stories: Story[]) => {
+  function toGeoJSON(list: Story[]) {
     return {
       type: "FeatureCollection" as const,
-      features: stories.map(story => ({
-        type: "Feature" as const,
-        geometry: {
-          type: "Point" as const,
-          coordinates: [story.lng!, story.lat!]
-        },
-        properties: {
-          id: story.id,
-          message: story.message,
-          likes: story.likes,
-          helpful: story.helpful,
-          noted: story.noted
-        }
-      }))
+      features: list
+        .filter((s) => s.lat != null && s.lng != null)
+        .map((s) => ({
+          type: "Feature" as const,
+          geometry: {
+            type: "Point" as const,
+            coordinates: [s.lng as number, s.lat as number],
+          },
+          properties: {
+            id: s.id,
+            message: s.message,
+          },
+        })),
     };
-  };
+  }
 
-  // Initialize map
+  function ensureSourceAndLayer() {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const sourceId = "stories";
+    const layerId = "community-heatmap";
+
+    const data = toGeoJSON(storiesWithLocation);
+
+    if (map.getSource(sourceId)) {
+      (map.getSource(sourceId) as mapboxgl.GeoJSONSource).setData(data as any);
+    } else {
+      map.addSource(sourceId, { type: "geojson", data: data as any });
+    }
+
+    if (!map.getLayer(layerId)) {
+      map.addLayer({
+        id: layerId,
+        type: "heatmap",
+        source: sourceId,
+        maxzoom: 18,
+        paint: {
+          "heatmap-weight": 1,
+          "heatmap-intensity": [
+            "interpolate",
+            ["linear"],
+            ["zoom"],
+            0, 0.6,
+            9, 1.2,
+            15, 2.0
+          ],
+          "heatmap-color": [
+            "interpolate",
+            ["linear"],
+            ["heatmap-density"],
+            0, "rgba(106, 13, 173, 0)",
+            0.2, "rgba(106, 13, 173, 0.35)",
+            0.5, "rgba(161, 66, 245, 0.65)",
+            1, "rgba(255, 78, 224, 0.95)"
+          ],
+          "heatmap-radius": [
+            "interpolate",
+            ["linear"],
+            ["zoom"],
+            0, 6,
+            9, 18,
+            15, 28
+          ],
+          "heatmap-opacity": [
+            "interpolate",
+            ["linear"],
+            ["zoom"],
+            5, 0.55,
+            9, 0.85,
+            15, 1
+          ],
+        },
+      });
+    }
+  }
+
+  function removeLayerAndSource() {
+    const map = mapRef.current;
+    if (!map) return;
+
+    const sourceId = "stories";
+    const layerId = "community-heatmap";
+
+    if (map.getLayer(layerId)) map.removeLayer(layerId);
+    if (map.getSource(sourceId)) map.removeSource(sourceId);
+  }
+
+  // Init map once
   useEffect(() => {
     if (!mapContainer.current) return;
+    if (mapRef.current) return;
 
-    map.current = new mapboxgl.Map({
+    const map = new mapboxgl.Map({
       container: mapContainer.current,
       style: "mapbox://styles/mapbox/streets-v12",
-      center: [-74.006, 40.7128], // Default to NYC
+      center: [-79.3832, 43.6532], // Toronto default for demo
       zoom: 10,
     });
 
-    map.current.on("load", () => {
-      // Fetch stories when map loads
-      fetchStories();
+    mapRef.current = map;
+
+    map.on("load", async () => {
+      await fetchStories();
     });
 
-    return () => map.current?.remove();
+    return () => {
+      map.remove();
+      mapRef.current = null;
+    };
   }, []);
 
-  // Handle heatmap toggle
-  const toggleHeatmap = () => {
-    if (!map.current) return;
-
-    if (heatmapEnabled) {
-      // Remove heatmap layer and source
-      if (map.current.getLayer('community-heatmap')) {
-        map.current.removeLayer('community-heatmap');
-      }
-      if (map.current.getSource('stories')) {
-        map.current.removeSource('stories');
-      }
-      setHeatmapEnabled(false);
-    } else {
-      // Add heatmap layer
-      addHeatmapLayer();
-      setHeatmapEnabled(true);
-    }
-  };
-
-  // Add heatmap layer to map
-  const addHeatmapLayer = () => {
-    if (!map.current || stories.length === 0) return;
-
-    const geoJsonData = createGeoJSONFromStories(stories);
-
-    // Add source
-    map.current.addSource('stories', {
-      type: 'geojson',
-      data: geoJsonData
-    });
-
-    // Add heatmap layer
-    map.current.addLayer({
-      id: 'community-heatmap',
-      type: 'heatmap',
-      source: 'stories',
-      maxzoom: 18,
-      paint: {
-        // Increase the heatmap weight based on story engagement (likes + helpful + noted)
-        'heatmap-weight': [
-          'interpolate',
-          ['linear'],
-          ['+', ['+', ['get', 'likes'], ['get', 'helpful']], ['get', 'noted']],
-          0, 0.1,
-          10, 1
-        ],
-        // Increase the heatmap intensity by zoom level
-        // heatmap-intensity is a multiplier on top of heatmap-weight
-        'heatmap-intensity': [
-          'interpolate',
-          ['linear'],
-          ['zoom'],
-          0, 0.5,
-          9, 1,
-          15, 2
-        ],
-        // Color ramp for heatmap: Dark purple → Medium purple → Hot pink
-        'heatmap-color': [
-          'interpolate',
-          ['linear'],
-          ['heatmap-density'],
-          0, 'rgba(45, 10, 82, 0)',       // Transparent dark purple
-          0.1, 'rgba(45, 10, 82, 0.4)',   // Dark purple (#2d0a52)
-          0.3, 'rgba(106, 13, 173, 0.6)', // Medium purple (#6a0dad)
-          0.5, 'rgba(255, 78, 224, 0.8)', // Hot pink (#ff4ee0)
-          1, 'rgba(255, 78, 224, 1)'      // Full hot pink
-        ],
-        // Adjust the heatmap radius by zoom level
-        'heatmap-radius': [
-          'interpolate',
-          ['linear'],
-          ['zoom'],
-          0, 5,
-          9, 15,
-          15, 25
-        ],
-        // Heatmap opacity increases with zoom level
-        'heatmap-opacity': [
-          'interpolate',
-          ['linear'],
-          ['zoom'],
-          5, 0.6,
-          9, 0.8,
-          15, 1
-        ]
-      }
-    });
-  };
-
-  // Update heatmap when stories change
+  // Update heatmap on data changes
   useEffect(() => {
-    if (heatmapEnabled && map.current && stories.length > 0) {
-      // Remove existing layer and source if they exist
-      if (map.current.getLayer('community-heatmap')) {
-        map.current.removeLayer('community-heatmap');
-      }
-      if (map.current.getSource('stories')) {
-        map.current.removeSource('stories');
-      }
-      // Add updated heatmap
-      addHeatmapLayer();
+    const map = mapRef.current;
+    if (!map) return;
+    if (!map.isStyleLoaded()) return;
+
+    if (!heatmapEnabled) return;
+
+    // If no stories, still keep map alive—just no layer
+    if (storiesWithLocation.length === 0) {
+      removeLayerAndSource();
+      return;
     }
-  }, [stories, heatmapEnabled]);
+
+    ensureSourceAndLayer();
+  }, [storiesWithLocation, heatmapEnabled]);
+
+  function toggleHeatmap() {
+    setHeatmapEnabled((v) => {
+      const next = !v;
+      if (!next) removeLayerAndSource();
+      else ensureSourceAndLayer();
+      return next;
+    });
+  }
 
   return (
     <div className={`relative ${className}`}>
-      {/* Map container */}
-      <div
-        ref={mapContainer}
-        className="w-full h-full rounded-xl border border-gray-200"
-      />
-      
-      {/* Heatmap toggle button */}
+      <div ref={mapContainer} className="w-full h-full rounded-2xl border border-purple-100" />
+
       <div className="absolute top-4 right-4 z-10 flex flex-col gap-2">
         <button
           onClick={toggleHeatmap}
-          disabled={loading || stories.length === 0}
-          className={`px-4 py-2 rounded-lg font-medium text-sm transition-all duration-200 shadow-lg ${
-            heatmapEnabled
-              ? 'bg-purple-600 text-white hover:bg-purple-700'
-              : 'bg-white text-gray-700 hover:bg-gray-50 border border-gray-300'
-          } ${(loading || stories.length === 0) ? 'opacity-50 cursor-not-allowed' : ''}`}
+          className={`px-4 py-2 rounded-xl font-semibold text-sm shadow-lg transition ${
+            heatmapEnabled ? "bg-purple-600 text-white hover:bg-purple-700" : "bg-white text-gray-800 border border-purple-100 hover:bg-purple-50"
+          }`}
         >
-          {loading ? 'Loading...' : `Community Heatmap: ${heatmapEnabled ? 'ON' : 'OFF'}`}
+          Heatmap: {heatmapEnabled ? "ON" : "OFF"}
         </button>
-        
-        {/* Story count indicator */}
-        {stories.length > 0 && (
-          <div className="bg-white/90 backdrop-blur-sm px-3 py-1 rounded-md text-xs text-gray-600 shadow-sm">
-            {stories.length} community reports
-          </div>
-        )}
-        
-        {/* Error message */}
+
+        <button
+          onClick={fetchStories}
+          disabled={loading}
+          className="px-4 py-2 rounded-xl text-sm font-semibold bg-white border border-purple-100 hover:bg-purple-50 transition shadow"
+        >
+          {loading ? "Refreshing…" : "Refresh stories"}
+        </button>
+
+        <div className="bg-white/90 backdrop-blur-sm px-3 py-2 rounded-xl text-xs text-gray-700 border border-purple-100 shadow">
+          {storiesWithLocation.length} reports on map
+        </div>
+
         {error && (
-          <div className="bg-red-100 border border-red-300 px-3 py-2 rounded-md text-xs text-red-700 shadow-sm max-w-48">
+          <div className="bg-red-50 border border-red-200 px-3 py-2 rounded-xl text-xs text-red-700 shadow max-w-56">
             {error}
-            <button
-              onClick={fetchStories}
-              className="ml-2 text-red-800 hover:text-red-900 underline"
-            >
-              Retry
-            </button>
           </div>
         )}
       </div>

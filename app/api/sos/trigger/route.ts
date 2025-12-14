@@ -5,7 +5,8 @@ import { executeWithRetry } from "@/utils/network-resilience";
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+  { auth: { persistSession: false } }
 );
 
 const resilientDb = createResilientDatabaseClient();
@@ -101,9 +102,23 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // For now, we'll use a placeholder user ID since authentication isn't fully implemented
-    // In a real app, you would get the user ID from the authentication session
-    const userId = "placeholder-user-id";
+    // Get authenticated user
+    const authSupabase = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+      { auth: { persistSession: false } }
+    );
+    
+    const { data: { user }, error: authError } = await authSupabase.auth.getUser();
+    
+    if (authError || !user) {
+      return NextResponse.json(
+        { success: false, message: "Not authenticated" },
+        { status: 401 }
+      );
+    }
+    
+    const userId = user.id;
 
     console.log("🚨 SOS Trigger activated for user:", userId, "at location:", { lat, lng });
 

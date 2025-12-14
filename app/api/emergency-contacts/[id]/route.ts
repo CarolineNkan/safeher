@@ -4,7 +4,8 @@ import { createResilientDatabaseClient, DatabaseErrorHandler, ErrorMessageFormat
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+  { auth: { persistSession: false } }
 );
 
 const resilientDb = createResilientDatabaseClient();
@@ -55,8 +56,17 @@ export async function PUT(
       );
     }
 
-    // For now, we'll use a placeholder user ID since authentication isn't fully implemented
-    const userId = "placeholder-user-id";
+    // Get authenticated user
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    
+    if (authError || !user) {
+      return NextResponse.json(
+        { success: false, message: "Not authenticated" },
+        { status: 401 }
+      );
+    }
+    
+    const userId = user.id;
 
     // Build update object
     const updateData: any = {};
@@ -165,8 +175,17 @@ export async function DELETE(
       );
     }
 
-    // For now, we'll use a placeholder user ID since authentication isn't fully implemented
-    const userId = "placeholder-user-id";
+    // Get authenticated user
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+    
+    if (authError || !user) {
+      return NextResponse.json(
+        { success: false, message: "Not authenticated" },
+        { status: 401 }
+      );
+    }
+    
+    const userId = user.id;
 
     // Delete emergency contact with resilient database client
     const contactResult = await resilientDb.executeWithRetry(async (client) => {

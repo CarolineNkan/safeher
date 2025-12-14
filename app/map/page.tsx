@@ -1,16 +1,31 @@
-import Map from "../../components/Map";
+"use client";
 
-export default function MapPage() {
+import Link from "next/link";
+import Map from "@/components/Map";
+
+export default function HeatmapPage() {
   return (
-    <div className="min-h-screen bg-purple-50">
-      <div className="container mx-auto px-4 py-8">
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Community Safety Map</h1>
-          <p className="text-gray-600">Explore community safety reports and trends</p>
+    <div className="min-h-screen bg-gradient-to-b from-purple-50 via-white to-purple-50 px-4 py-10">
+      <div className="max-w-5xl mx-auto">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-xs uppercase tracking-[0.18em] text-purple-600 font-semibold">
+              Safety Map
+            </p>
+            <h1 className="mt-1 text-3xl font-semibold text-gray-900">
+              Community heatmap
+            </h1>
+            <p className="text-gray-600 mt-2">
+              Built from community stories (location-attached reports).
+            </p>
+          </div>
+          <Link href="/" className="text-sm text-purple-600 hover:text-purple-800 underline">
+            Back home
+          </Link>
         </div>
-        
-        <div className="bg-white rounded-xl shadow-lg p-6">
-          <Map className="w-full h-[600px]" />
+
+        <div className="mt-6 bg-white rounded-3xl shadow-xl border border-purple-100 p-4">
+          <Map className="w-full h-[520px]" />
         </div>
       </div>
     </div>

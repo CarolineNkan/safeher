@@ -1,178 +1,245 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
-import { supabase } from "@/lib/supabaseClient";
-import StoryCard from "@/components/StoryCard";
+import { useEffect, useState } from "react";
+import Link from "next/link";
 
-interface Story {
-  id: string;
-  message: string;
-  created_at: string;
-  lat?: number;
-  lng?: number;
+/* ---------- anonymous ownership ---------- */
+function getClientId() {
+  if (typeof window === "undefined") return "";
+  let id = localStorage.getItem("safeher_client_id");
+  if (!id) {
+    id = crypto.randomUUID();
+    localStorage.setItem("safeher_client_id", id);
+  }
+  return id;
 }
 
 export default function StoriesPage() {
-  const [story, setStory] = useState("");
-  const [stories, setStories] = useState<Story[]>([]);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const router = useRouter();
+  const clientId = getClientId();
 
-  // Initial fetch of stories
-  useEffect(() => {
-    fetchStories();
-  }, []);
+  const [stories, setStories] = useState<any[]>([]);
+  const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(false);
 
-  // Real-time subscription
-  useEffect(() => {
-    const channel = supabase
-      .channel("stories-feed")
-      .on(
-        "postgres_changes",
-        {
-          event: "INSERT",
-          schema: "public",
-          table: "stories",
-        },
-        (payload) => {
-          console.log("New story received:", payload);
-          const newStory = payload.new as Story;
-          setStories((current) => [newStory, ...current]);
-        }
-      )
-      .subscribe();
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editText, setEditText] = useState("");
 
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, []);
-
-  async function fetchStories() {
-    try {
-      const response = await fetch("/api/stories/list");
-      const data = await response.json();
-      setStories(data);
-    } catch (error) {
-      console.error("Failed to fetch stories:", error);
-    }
+  /* ---------- load ---------- */
+  async function loadStories() {
+    const res = await fetch("/api/stories/list", { cache: "no-store" });
+    const json = await res.json();
+    setStories(json.stories || []);
   }
 
-  async function submit() {
-    if (!story.trim()) {
-      alert("Please write a story first.");
+  useEffect(() => {
+    loadStories();
+  }, []);
+
+  /* ---------- create ---------- */
+  async function submitStory() {
+    if (!message.trim()) return;
+
+    setLoading(true);
+    await fetch("/api/stories/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message,
+        client_id: clientId,
+      }),
+    });
+
+    setMessage("");
+    setLoading(false);
+    loadStories();
+  }
+
+  /* ---------- reactions ---------- */
+  async function react(storyId: string, reaction: string) {
+    await fetch("/api/stories/react", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        story_id: storyId,
+        reaction,
+        client_id: clientId,
+      }),
+    });
+    loadStories();
+  }
+
+  /* ---------- delete (FIXED) ---------- */
+  async function deleteStory(id: string) {
+    const res = await fetch("/api/stories/delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id,
+        client_id: clientId,
+      }),
+    });
+
+    if (!res.ok) {
+      console.error("Delete failed");
       return;
     }
 
-    setIsSubmitting(true);
+    setOpenMenuId(null);
+    loadStories();
+  }
 
-    try {
-      // Optimistic UI update - add story immediately
-      const optimisticStory: Story = {
-        id: `temp-${Date.now()}`,
-        message: story,
-        created_at: new Date().toISOString(),
-      };
-      
-      setStories((current) => [optimisticStory, ...current]);
-      setStory("");
+  /* ---------- edit ---------- */
+  async function saveEdit(id: string) {
+    if (!editText.trim()) return;
 
-      // Submit to server
-      const response = await fetch("/api/stories/submit", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          story,
-          lat: null,
-          lng: null,
-        }),
-      });
+    await fetch("/api/stories/update", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id,
+        message: editText,
+        client_id: clientId,
+      }),
+    });
 
-      const result = await response.json();
-
-      if (result.success) {
-        // Remove optimistic story and let real-time update handle the real one
-        setStories((current) => 
-          current.filter((s) => s.id !== optimisticStory.id)
-        );
-        router.refresh();
-      } else {
-        // Remove optimistic story on error
-        setStories((current) => 
-          current.filter((s) => s.id !== optimisticStory.id)
-        );
-        alert("Failed to submit story. Please try again.");
-      }
-    } catch (error) {
-      console.error("Submit error:", error);
-      // Remove optimistic story on error
-      setStories((current) => 
-        current.filter((s) => s.id.startsWith("temp-"))
-      );
-      alert("Failed to submit story. Please try again.");
-    } finally {
-      setIsSubmitting(false);
-    }
+    setEditingId(null);
+    setEditText("");
+    setOpenMenuId(null);
+    loadStories();
   }
 
   return (
-    <div className="max-w-3xl mx-auto p-6 space-y-6">
-      {/* HEADER */}
-      <div className="text-center space-y-2">
-        <h1 className="text-3xl font-bold text-white">Community Stories</h1>
-        <p className="text-purple-300">
-          Share your experiences and help other women stay safe
-        </p>
-      </div>
+    <div className="min-h-screen bg-purple-50 px-4 py-10">
+      <div className="max-w-4xl mx-auto">
+        <Link href="/" className="text-purple-600 hover:underline">
+          ← Back home
+        </Link>
 
-      {/* COMPOSER */}
-      <div className="bg-[#0e0f1a] border border-purple-700/30 rounded-2xl p-5 space-y-4">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-gradient-to-r from-purple-600 to-fuchsia-600 flex items-center justify-center text-white font-bold">
-            You
-          </div>
-          <p className="text-white font-semibold">Share your safety experience</p>
-        </div>
-
-        <textarea
-          className="w-full p-4 rounded-xl bg-black/20 text-white border border-purple-600/40 focus:border-purple-400 outline-none min-h-[120px] resize-none"
-          placeholder="What happened? Use #hashtags to categorize your experience..."
-          value={story}
-          onChange={(e) => setStory(e.target.value)}
-          disabled={isSubmitting}
-        />
-
-        <div className="flex justify-between items-center">
-          <p className="text-xs text-gray-500">
-            Your story helps other women plan safer routes
-          </p>
-          <button
-            className="bg-gradient-to-r from-purple-600 to-fuchsia-600 text-white py-2 px-6 rounded-xl font-semibold hover:opacity-90 transition disabled:opacity-50"
-            onClick={submit}
-            disabled={isSubmitting || !story.trim()}
-          >
-            {isSubmitting ? "Sharing..." : "Share Story"}
-          </button>
-        </div>
-      </div>
-
-      {/* FEED */}
-      <div className="space-y-4">
-        {stories.length === 0 && (
-          <div className="text-center py-12">
-            <p className="text-gray-400">No stories yet — be the first to share!</p>
-          </div>
-        )}
-
-        {stories.map((storyItem) => (
-          <StoryCard
-            key={storyItem.id}
-            id={storyItem.id}
-            message={storyItem.message}
-            created_at={storyItem.created_at}
+        {/* ================= POST COMPOSER (YOUR UI) ================= */}
+        <div className="bg-white border rounded-2xl p-4 mt-6">
+          <textarea
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            placeholder="Share what happened, where you felt unsafe, or advice for others…"
+            className="w-full p-3 border rounded-xl resize-none focus:outline-none focus:ring-2 focus:ring-purple-500"
+            rows={4}
           />
-        ))}
+
+          <button
+            onClick={submitStory}
+            disabled={loading}
+            className="mt-3 px-4 py-2 bg-purple-600 text-white rounded-xl hover:bg-purple-700 transition disabled:opacity-50"
+          >
+            {loading ? "Posting…" : "Share Story"}
+          </button>
+
+          <p className="text-xs text-gray-500 mt-2">
+            Location sharing is optional. Stories are shared anonymously.
+          </p>
+        </div>
+
+        {/* ================= HEADER ================= */}
+        <h1 className="text-3xl font-semibold mt-6">Community Stories</h1>
+        <p className="text-gray-600 mt-1">
+          Real experiences shared by women to help others stay safe.
+        </p>
+
+        {/* ================= STORIES ================= */}
+        <div className="mt-8 space-y-4">
+          {stories.map((s) => (
+            <div key={s.id} className="bg-white rounded-2xl p-5 shadow relative">
+              {/* MESSAGE */}
+              {editingId === s.id ? (
+                <>
+                  <textarea
+                    value={editText}
+                    onChange={(e) => setEditText(e.target.value)}
+                    className="w-full p-2 border rounded-lg resize-none"
+                    rows={3}
+                  />
+                  <div className="flex gap-2 mt-2">
+                    <button
+                      onClick={() => saveEdit(s.id)}
+                      className="px-3 py-1 bg-purple-600 text-white rounded-lg text-sm"
+                    >
+                      Save
+                    </button>
+                    <button
+                      onClick={() => {
+                        setEditingId(null);
+                        setEditText("");
+                      }}
+                      className="px-3 py-1 border rounded-lg text-sm"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <p className="text-gray-900">{s.message}</p>
+              )}
+
+              {/* META */}
+              <p className="text-xs text-gray-500 mt-2">
+                {s.lat && s.lng ? "Shared with location" : "Location not shared"} ·{" "}
+                {new Date(s.created_at).toLocaleString()}
+              </p>
+
+              {/* REACTIONS */}
+              <div className="flex items-center gap-4 mt-4 text-sm">
+                <button onClick={() => react(s.id, "like")}>
+                  ❤️ {s.reactions.like}
+                </button>
+                <button onClick={() => react(s.id, "helpful")}>
+                  👍 {s.reactions.helpful}
+                </button>
+                <button onClick={() => react(s.id, "noted")}>
+                  📌 {s.reactions.noted}
+                </button>
+              </div>
+
+              {/* 3-DOT MENU */}
+              {s.client_id === clientId && (
+                <div className="absolute top-3 right-3">
+                  <button
+                    onClick={() =>
+                      setOpenMenuId(openMenuId === s.id ? null : s.id)
+                    }
+                    className="text-gray-500 hover:text-gray-700"
+                  >
+                    ⋯
+                  </button>
+
+                  {openMenuId === s.id && (
+                    <div className="absolute right-0 mt-2 w-28 bg-white border rounded-xl shadow-md z-10">
+                      <button
+                        onClick={() => {
+                          setEditingId(s.id);
+                          setEditText(s.message);
+                        }}
+                        className="w-full text-left px-3 py-2 text-sm hover:bg-purple-50"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => deleteStory(s.id)}
+                        className="w-full text-left px-3 py-2 text-sm text-red-600 hover:bg-red-50"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
 }
+
+
+
+
