@@ -46,16 +46,7 @@ export async function POST(req: Request) {
 
     const supabase = getSupabase();
 
-    /**
-     * Assumptions based on what you showed:
-     * - stories table exists
-     * - has: id, message, lat, lng, created_at, client_id (or user_id)
-     * - your /api/stories/list returns reactions already, but heatmap should not depend on that.
-     *
-     * If your reactions are stored in a separate table, you can join/aggregate here later.
-     * For now, we read reaction counts if they’re stored on the story row as JSON.
-     * If they aren't stored on the row, we fall back to zeros and still render points.
-     */
+    
 
     const { data: rows, error } = await supabase
       .from("stories")
