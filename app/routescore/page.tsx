@@ -8,7 +8,7 @@ export default function RouteScorePage() {
     <Suspense
       fallback={
         <div className="min-h-screen bg-purple-50 flex items-center justify-center">
-          <p className="text-gray-600">Calculating route safety…</p>
+          <p className="text-gray-600">Loading route safety…</p>
         </div>
       }
     >
